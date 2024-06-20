@@ -338,7 +338,7 @@ class CLAPWrapper():
     def classify_audio_files_per_batch(self, audio_files, class_labels, batch_size):
         r"""Compute classification probabilities for each audio recording in a batch and each class label"""
         return self._generic_batch_inference(self.classify_audio_files, audio_files, class_labels, batch_size)
-    
+
     def generate_caption(self, audio_files, resample=True, beam_size: int = 5, entry_length=67, temperature=1.):
         r"""Generate audio captions for each audio recording in a batch"""
         captions = []
@@ -356,6 +356,31 @@ class CLAPWrapper():
                                                             entry_length=entry_length,\
                                                             temperature=temperature)[0]
                 captions.append(gen_caption.capitalize())
+        return captions
+    
+    def generate_embedding_caption(self, audio_embeddings, beam_size: int = 5, entry_length=67, temperature=1.):
+        r"""Generate captions for provided audio embeddings"""
+        captions = []
+
+        # Ensure the embeddings are on the correct device
+        if self.use_cuda and torch.cuda.is_available():
+            audio_embeddings = audio_embeddings.cuda()
+
+        with torch.no_grad():
+            # Check if normalization is needed
+            if hasattr(self.args, 'normalize_prefix') and self.args.normalize_prefix:
+                audio_embeddings = audio_embeddings / audio_embeddings.norm(2, -1, keepdim=True)
+
+            # Project the embeddings
+            prefix_embed = self.clapcap.clap_project(audio_embeddings).view(-1, self.args.prefix_length, self.clapcap.gpt.transformer.wte.weight.shape[1])
+
+            for i in range(prefix_embed.size(0)):
+                gen_caption = self._generate_beam(embed=prefix_embed[i].unsqueeze(0),\
+                                                beam_size=beam_size,\
+                                                entry_length=entry_length,\
+                                                temperature=temperature)[0]
+                captions.append(gen_caption.capitalize())
+
         return captions
     
     def _generate_beam(self, beam_size: int = 5, prompt=None, embed=None,
